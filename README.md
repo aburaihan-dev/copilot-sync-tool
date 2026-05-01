@@ -3,6 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/aburaihan-dev/copilot-sync-tool)](https://github.com/aburaihan-dev/copilot-sync-tool/releases/latest)
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/github/license/aburaihan-dev/copilot-sync-tool)](LICENSE)
+[![Views](https://profile-views-counter.mdaburaihansrabon.workers.dev/badge/repo/aburaihan-dev/copilot-sync-tool)](https://profile-views-counter.mdaburaihansrabon.workers.dev/badge/repo/aburaihan-dev/copilot-sync-tool)
 
 Sync your GitHub Copilot CLI config — agents, MCP servers, settings, and instructions — across macOS, Linux, and Windows using a Git dotfiles repo.
 
