@@ -60,22 +60,51 @@ copilot-sync-tool capture   # copy local config → dotfiles → commit + push
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| **Cross-platform** | macOS, Linux, Windows — auto-detects paths and symlink support |
-| **Interactive install** | Pick exactly which MCP servers and agents to install |
-| **Capture + push** | Copies local config into dotfiles and git-commits in one command |
-| **Smart merge** | Per-server conflict resolution when MCP configs diverge |
-| **Line-level diff** | See exactly what has drifted between local and dotfiles |
-| **Validate** | Checks JSON, structure, and agent frontmatter — CI-ready |
-| **Secrets scan** | Detects API key patterns in MCP JSON before committing |
-| **Profiles** | Switch between multiple dotfiles repos (personal / work) |
-| **Self-update** | Replaces the binary in-place from GitHub Releases |
-| **Agent scaffolding** | `agent new` creates a properly formatted `.agent.md` |
-| **MCP registry** | `mcp add github` adds popular servers with one command |
-| **Shell completions** | bash, zsh, fish, PowerShell |
-| **Auto copy-mode** | Falls back to file copies on Windows when symlinks are unavailable |
-| **Safe backups** | Existing files renamed to `.bak` before any install |
+### Setup & onboarding
+
+| Feature | Command | Description |
+|---|---|---|
+| Bootstrap from scratch | `init` | Scaffolds `copilot/` structure, captures existing config, runs `git init` and pushes |
+| Connect on a new machine | `setup` | Register a local path or clone URL; saves it so `--dotfiles` is never needed again |
+| Apply config to this machine | `install` | Interactive picker or `--all`; creates symlinks (or copies on Windows) with `.bak` safety |
+| Switch dotfiles repos | `profile switch` | Named profiles for personal / work repos; all commands use the active profile |
+
+### Daily sync
+
+| Feature | Command | Description |
+|---|---|---|
+| Pull + install in one shot | `sync` | `git pull` → `install --all` — the only command most days |
+| Save local changes | `capture` | Copies local config into dotfiles, scans for secrets, commits and pushes |
+| Check sync state | `status` | Symlink state per file, agent + MCP counts, git branch, ahead/behind, untracked items |
+| Line-level drift | `diff` | Shows exactly what has changed between local config and dotfiles |
+
+### Conflict resolution & safety
+
+| Feature | Command | Description |
+|---|---|---|
+| Resolve MCP conflicts | `merge` | Per-server interactive resolution; `--ai` generates a merge prompt for Copilot |
+| Validate dotfiles | `validate` | Checks JSON validity, directory structure, agent frontmatter — exits 1 for CI |
+| Undo an install | `restore` | Interactive or `--all`; restores from `.bak` files created during install |
+| Secrets scan | _(automatic)_ | Detects API key patterns in MCP JSON before any commit |
+| Safe backups | _(automatic)_ | Existing files renamed to `.bak` before any install step |
+
+### Agent & MCP management
+
+| Feature | Command | Description |
+|---|---|---|
+| Scaffold a new agent | `agent new` | Creates a properly formatted `.agent.md`; `--capture` also installs it locally |
+| List MCP servers | `mcp list` | Shows all servers across platform configs |
+| Add from registry | `mcp add` | Interactive picker or `mcp add github`; names include `github`, `filesystem`, `fetch`, `memory` |
+| Add to all platforms | `mcp add --all-platforms` | Writes to macOS, Linux, and Windows configs in one step |
+| Remove a server | `mcp remove` | Interactive picker to remove from any platform config |
+
+### Utilities
+
+| Feature | Command | Description |
+|---|---|---|
+| Update the binary | `self-update` | Downloads latest release and replaces binary in-place; `--check` prints version only |
+| Shell tab completion | `completion install` | Auto-detects shell; supports bash, zsh, fish, PowerShell |
+| Cross-platform | _(automatic)_ | macOS/Linux use symlinks; Windows auto-falls back to copy mode if symlinks unavailable |
 
 ---
 
