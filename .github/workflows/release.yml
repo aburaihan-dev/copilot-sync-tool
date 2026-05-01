@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            artifact: copilot-sync-tool-macos-amd64
+          - goos: darwin
+            goarch: arm64
+            artifact: copilot-sync-tool-macos-arm64
+          - goos: linux
+            goarch: amd64
+            artifact: copilot-sync-tool-linux-amd64
+          - goos: linux
+            goarch: arm64
+            artifact: copilot-sync-tool-linux-arm64
+          - goos: windows
+            goarch: amd64
+            artifact: copilot-sync-tool-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build \
+            -ldflags="-s -w -X github.com/aburaihan-dev/copilot-sync-tool/cmd.Version=${{ github.ref_name }}" \
+            -o dist/${{ matrix.artifact }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Make binaries executable
+        run: chmod +x dist/copilot-sync-tool-macos-* dist/copilot-sync-tool-linux-*
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt && cat checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/copilot-sync-tool-macos-amd64
+            dist/copilot-sync-tool-macos-arm64
+            dist/copilot-sync-tool-linux-amd64
+            dist/copilot-sync-tool-linux-arm64
+            dist/copilot-sync-tool-windows-amd64.exe
+            dist/checksums.txt
