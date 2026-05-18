@@ -20,6 +20,7 @@ var (
 	captureAgents       bool
 	captureSettings     bool
 	captureInstructions bool
+	captureForce        bool
 	capturePush         bool
 	captureMessage      string
 )
@@ -36,11 +37,21 @@ Files captured (when no filter flag is given, all are included):
   settings.json           — Copilot CLI settings
   copilot-instructions.md — global Copilot instructions
 
-Files already managed as symlinks are automatically skipped.
+By default only NEW agents are added (additive). Use --force to make the
+dotfiles repo an exact mirror of this device: modified agents are updated
+and agents deleted on this device are removed from dotfiles.
+
+When agents/ is managed as a symlink, --force will detect and commit any
+uncommitted git changes (deletions, modifications) that are already present
+in the dotfiles directory.
+
 After a successful capture, the dotfiles repo is committed and pushed
 unless --no-push is specified.`,
 	Example: `  # Capture everything and push to git
   copilot-sync-tool capture
+
+  # Force-mirror: update modified agents and remove deleted ones
+  copilot-sync-tool capture --agents --force
 
   # Capture only agents, skip git push
   copilot-sync-tool capture --agents --no-push
@@ -58,6 +69,7 @@ func init() {
 	captureCmd.Flags().BoolVar(&captureAgents, "agents", false, "Capture only agents/")
 	captureCmd.Flags().BoolVar(&captureSettings, "settings", false, "Capture only settings.json")
 	captureCmd.Flags().BoolVar(&captureInstructions, "instructions", false, "Capture only copilot-instructions.md")
+	captureCmd.Flags().BoolVar(&captureForce, "force", false, "Force-mirror: update modified agents and remove deleted ones (device is authoritative)")
 	captureCmd.Flags().BoolVar(&capturePush, "push", true, "Git commit and push after capture (disable with --no-push)")
 	captureCmd.Flags().StringVar(&captureMessage, "message", "", "Custom git commit message (auto-generated if not set)")
 	rootCmd.AddCommand(captureCmd)
@@ -95,17 +107,52 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 		isLink, _ := symlink.Check(agentsLocal)
 		if isLink {
-			ui.Skip("agents/ - already symlinked to dotfiles")
-			skipped = append(skipped, "agents/")
+			if captureForce {
+				// Symlinked: local IS dotfiles — detect uncommitted git changes
+				gitOut, _ := git.StatusPath(dotfiles, "copilot/agents/")
+				if gitOut != "" {
+					ui.Action(fmt.Sprintf("agents/ symlinked — uncommitted changes detected:\n%s", gitOut))
+					captured = append(captured, "agents/ (git changes)")
+				} else {
+					ui.Skip("agents/ — symlinked, no uncommitted changes")
+					skipped = append(skipped, "agents/ (clean)")
+				}
+			} else {
+				ui.Skip("agents/ - already symlinked to dotfiles")
+				skipped = append(skipped, "agents/")
+			}
 		} else {
 			if err := os.MkdirAll(agentsDotfiles, 0755); err != nil {
 				ui.Error(fmt.Sprintf("Failed to create agents dotfiles dir: %v", err))
+			} else if captureForce {
+				// Force-mirror: make dotfiles an exact copy of the device
+				diff, err := agents.ForceMirror(agentsLocal, agentsDotfiles)
+				if err != nil {
+					ui.Error(fmt.Sprintf("Failed to mirror agents: %v", err))
+				} else {
+					total := len(diff.Added) + len(diff.Modified) + len(diff.Removed)
+					if total == 0 {
+						ui.Info("No agent changes to mirror")
+						skipped = append(skipped, "agents/ (no changes)")
+					} else {
+						for _, a := range diff.Added {
+							ui.Success(fmt.Sprintf("Added agent:   %s", a))
+						}
+						for _, a := range diff.Modified {
+							ui.Success(fmt.Sprintf("Updated agent: %s", a))
+						}
+						for _, a := range diff.Removed {
+							ui.Success(fmt.Sprintf("Removed agent: %s", a))
+						}
+						captured = append(captured, "agents/")
+					}
+				}
 			} else {
 				newAgents, err := agents.CaptureNew(agentsLocal, agentsDotfiles)
 				if err != nil {
 					ui.Error(fmt.Sprintf("Failed to capture agents: %v", err))
 				} else if len(newAgents) == 0 {
-					ui.Info("No new agents to capture")
+					ui.Info("No new agents to capture (use --force to also sync modifications and deletions)")
 					skipped = append(skipped, "agents/ (no new files)")
 				} else {
 					for _, a := range newAgents {

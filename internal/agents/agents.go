@@ -54,6 +54,82 @@ func Untracked(localDir, dotfilesDir string) ([]string, error) {
 	return untracked, nil
 }
 
+// AgentDiff holds the result of comparing a local agent directory against dotfiles.
+type AgentDiff struct {
+	Added    []string // present locally, missing from dotfiles
+	Modified []string // present in both but content differs
+	Removed  []string // present in dotfiles, deleted locally
+}
+
+// Diff computes the three-way difference between localDir and dotfilesDir.
+func Diff(localDir, dotfilesDir string) (AgentDiff, error) {
+	local, err := List(localDir)
+	if err != nil && !os.IsNotExist(err) {
+		return AgentDiff{}, err
+	}
+	dotf, err := List(dotfilesDir)
+	if err != nil && !os.IsNotExist(err) {
+		return AgentDiff{}, err
+	}
+
+	localSet := make(map[string]bool, len(local))
+	for _, f := range local {
+		localSet[f] = true
+	}
+	dotfSet := make(map[string]bool, len(dotf))
+	for _, f := range dotf {
+		dotfSet[f] = true
+	}
+
+	var d AgentDiff
+	for _, f := range local {
+		if !dotfSet[f] {
+			d.Added = append(d.Added, f)
+		} else {
+			// Both exist — check content
+			ld, e1 := os.ReadFile(filepath.Join(localDir, f))
+			dd, e2 := os.ReadFile(filepath.Join(dotfilesDir, f))
+			if e1 == nil && e2 == nil && string(ld) != string(dd) {
+				d.Modified = append(d.Modified, f)
+			}
+		}
+	}
+	for _, f := range dotf {
+		if !localSet[f] {
+			d.Removed = append(d.Removed, f)
+		}
+	}
+	return d, nil
+}
+
+// ForceMirror makes dotfilesDir an exact mirror of localDir:
+//   - copies agents that are new or modified on the device
+//   - removes agents from dotfiles that were deleted on the device
+//
+// Returns the diff that was applied.
+func ForceMirror(localDir, dotfilesDir string) (AgentDiff, error) {
+	d, err := Diff(localDir, dotfilesDir)
+	if err != nil {
+		return AgentDiff{}, err
+	}
+	for _, name := range d.Added {
+		if err := copyFile(filepath.Join(localDir, name), filepath.Join(dotfilesDir, name)); err != nil {
+			return d, fmt.Errorf("copying %s: %w", name, err)
+		}
+	}
+	for _, name := range d.Modified {
+		if err := copyFile(filepath.Join(localDir, name), filepath.Join(dotfilesDir, name)); err != nil {
+			return d, fmt.Errorf("updating %s: %w", name, err)
+		}
+	}
+	for _, name := range d.Removed {
+		if err := os.Remove(filepath.Join(dotfilesDir, name)); err != nil && !os.IsNotExist(err) {
+			return d, fmt.Errorf("removing %s: %w", name, err)
+		}
+	}
+	return d, nil
+}
+
 // CaptureNew copies agent files from localDir to dotfilesDir that don't exist there yet.
 // Returns the names of newly copied agents.
 func CaptureNew(localDir, dotfilesDir string) ([]string, error) {

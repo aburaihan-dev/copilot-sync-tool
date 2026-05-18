@@ -85,6 +85,12 @@ func Pull(dir string) error {
 	return err
 }
 
+// StatusPath returns the short git status output scoped to a specific path.
+// Useful for detecting uncommitted changes inside a symlinked subdirectory.
+func StatusPath(dir, path string) (string, error) {
+	return run(dir, "status", "--short", "--", path)
+}
+
 // RemoteStatus fetches remote status without network access (uses cached data).
 func RemoteStatus(dir string) (string, error) {
 	return run(dir, "remote", "-v")
