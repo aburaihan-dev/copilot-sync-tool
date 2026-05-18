@@ -73,9 +73,9 @@ func Commit(dir, message string) error {
 	return err
 }
 
-// Push pushes the current branch to origin.
+// Push pushes the current HEAD to origin/main.
 func Push(dir string) error {
-	_, err := run(dir, "push")
+	_, err := run(dir, "push", "origin", "HEAD:main")
 	return err
 }
 
