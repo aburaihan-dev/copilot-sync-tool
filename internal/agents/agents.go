@@ -108,6 +108,9 @@ func Diff(localDir, dotfilesDir string) (AgentDiff, error) {
 //
 // Returns the diff that was applied.
 func ForceMirror(localDir, dotfilesDir string) (AgentDiff, error) {
+	if err := os.MkdirAll(dotfilesDir, 0755); err != nil {
+		return AgentDiff{}, fmt.Errorf("creating dotfiles agents dir: %w", err)
+	}
 	d, err := Diff(localDir, dotfilesDir)
 	if err != nil {
 		return AgentDiff{}, err
