@@ -24,6 +24,7 @@ macOS, Linux, and Windows.
 
 Managed files:
   ~/.copilot/agents/               → dotfiles/copilot/agents/
+  ~/.copilot/ (skillDirectories)    → dotfiles/copilot/skills/
   ~/.copilot/mcp-config.json       → dotfiles/copilot/mcp-config.<platform>.json
   ~/.copilot/settings.json         → dotfiles/copilot/settings.json
   ~/.copilot/copilot-instructions.md → dotfiles/copilot/copilot-instructions.md

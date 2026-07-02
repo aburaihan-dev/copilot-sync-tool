@@ -10,6 +10,7 @@ import (
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/mcp"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/platform"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/secrets"
+	"github.com/aburaihan-dev/copilot-sync-tool/internal/skills"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/symlink"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/ui"
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ import (
 var (
 	captureMCP          bool
 	captureAgents       bool
+	captureSkills       bool
 	captureSettings     bool
 	captureInstructions bool
 	captureForce        bool
@@ -33,6 +35,7 @@ be versioned and synced to other machines.
 
 Files captured (when no filter flag is given, all are included):
   agents/                 — custom agent definition files (.agent.md)
+  skills/                 — skill directories (from settings.json "skillDirectories")
   mcp-config.json         — MCP server configuration (per-platform)
   settings.json           — Copilot CLI settings
   copilot-instructions.md — global Copilot instructions
@@ -53,6 +56,9 @@ unless --no-push is specified.`,
   # Force-mirror: update modified agents and remove deleted ones
   copilot-sync-tool capture --agents --force
 
+  # Force-mirror skill directories too
+  copilot-sync-tool capture --skills --force
+
   # Capture only agents, skip git push
   copilot-sync-tool capture --agents --no-push
 
@@ -67,6 +73,7 @@ unless --no-push is specified.`,
 func init() {
 	captureCmd.Flags().BoolVar(&captureMCP, "mcp", false, "Capture only mcp-config.json")
 	captureCmd.Flags().BoolVar(&captureAgents, "agents", false, "Capture only agents/")
+	captureCmd.Flags().BoolVar(&captureSkills, "skills", false, "Capture only skills/")
 	captureCmd.Flags().BoolVar(&captureSettings, "settings", false, "Capture only settings.json")
 	captureCmd.Flags().BoolVar(&captureInstructions, "instructions", false, "Capture only copilot-instructions.md")
 	captureCmd.Flags().BoolVar(&captureForce, "force", false, "Force-mirror: update modified agents and remove deleted ones (device is authoritative)")
@@ -88,7 +95,7 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	plat := platform.Current()
 
 	// If no specific flag set, capture all
-	captureAll := !captureMCP && !captureAgents && !captureSettings && !captureInstructions
+	captureAll := !captureMCP && !captureAgents && !captureSkills && !captureSettings && !captureInstructions
 
 	ui.Header("Capturing Copilot Config")
 	fmt.Println()
@@ -158,6 +165,57 @@ func runCapture(cmd *cobra.Command, args []string) error {
 					for _, a := range newAgents {
 						ui.Success(fmt.Sprintf("Captured agent: %s", a))
 						captured = append(captured, "agents/"+a)
+					}
+				}
+			}
+		}
+	}
+
+	// Capture skills
+	if captureAll || captureSkills {
+		fmt.Println()
+		ui.SectionHeader("Skills")
+		skillsLocal, err := platform.LocalSkillDirectories()
+		if err != nil {
+			ui.Error(fmt.Sprintf("Failed to read local skillDirectories: %v", err))
+		} else if len(skillsLocal) == 0 {
+			ui.Info("No skillDirectories configured in settings.json")
+			skipped = append(skipped, "skills/ (none configured)")
+		} else {
+			skillsDotfiles := platform.DotfilesSkillsDir(dotfiles)
+			if captureForce {
+				diff, err := skills.ForceMirror(skillsLocal, skillsDotfiles)
+				if err != nil {
+					ui.Error(fmt.Sprintf("Failed to mirror skills: %v", err))
+				} else {
+					total := len(diff.Added) + len(diff.Modified) + len(diff.Removed)
+					if total == 0 {
+						ui.Info("No skill changes to mirror")
+						skipped = append(skipped, "skills/ (no changes)")
+					} else {
+						for _, s := range diff.Added {
+							ui.Success(fmt.Sprintf("Added skill:   %s", s))
+						}
+						for _, s := range diff.Modified {
+							ui.Success(fmt.Sprintf("Updated skill: %s", s))
+						}
+						for _, s := range diff.Removed {
+							ui.Success(fmt.Sprintf("Removed skill: %s", s))
+						}
+						captured = append(captured, "skills/")
+					}
+				}
+			} else {
+				newSkills, err := skills.CaptureNew(skillsLocal, skillsDotfiles)
+				if err != nil {
+					ui.Error(fmt.Sprintf("Failed to capture skills: %v", err))
+				} else if len(newSkills) == 0 {
+					ui.Info("No new skills to capture (use --force to also sync modifications and deletions)")
+					skipped = append(skipped, "skills/ (no new dirs)")
+				} else {
+					for _, s := range newSkills {
+						ui.Success(fmt.Sprintf("Captured skill: %s", s))
+						captured = append(captured, "skills/"+s)
 					}
 				}
 			}

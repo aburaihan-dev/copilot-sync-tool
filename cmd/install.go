@@ -11,6 +11,7 @@ import (
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/git"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/mcp"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/platform"
+	"github.com/aburaihan-dev/copilot-sync-tool/internal/skills"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/symlink"
 	"github.com/aburaihan-dev/copilot-sync-tool/internal/ui"
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ import (
 var (
 	installMCP         bool
 	installAgents      bool
+	installSkills      bool
 	installSettings    bool
 	installInstructions bool
 	installInteractive bool
@@ -48,6 +50,7 @@ Managed files:
   mcp-config.json         ← dotfiles/copilot/mcp-config.<platform>.json
   settings.json           ← dotfiles/copilot/settings.json
   agents/                 ← dotfiles/copilot/agents/
+  skills/                 ← dotfiles/copilot/skills/ (installed at paths from settings.json "skillDirectories")
   copilot-instructions.md ← dotfiles/copilot/copilot-instructions.md`,
 	Example: `  # Interactive picker (default — select components and individual items)
   copilot-sync-tool install
@@ -69,6 +72,7 @@ Managed files:
 func init() {
 	installCmd.Flags().BoolVar(&installMCP, "mcp", false, "Install only mcp-config.json")
 	installCmd.Flags().BoolVar(&installAgents, "agents", false, "Install only agents/")
+	installCmd.Flags().BoolVar(&installSkills, "skills", false, "Install only skills/")
 	installCmd.Flags().BoolVar(&installSettings, "settings", false, "Install only settings.json")
 	installCmd.Flags().BoolVar(&installInstructions, "instructions", false, "Install only copilot-instructions.md")
 	installCmd.Flags().BoolVar(&installAll, "all", false, "Install all components without prompting")
@@ -114,7 +118,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Specific component flags were passed — install just those, no prompt.
-	hasComponentFlag := installMCP || installAgents || installSettings || installInstructions
+	hasComponentFlag := installMCP || installAgents || installSkills || installSettings || installInstructions
 
 	if !hasComponentFlag && !installAll && !installInteractive {
 		// Default: interactive picker
@@ -133,7 +137,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot create copilot dir: %w", err)
 	}
 
-	installEverything := installAll || (!installMCP && !installAgents && !installSettings && !installInstructions)
+	installEverything := installAll || (!installMCP && !installAgents && !installSkills && !installSettings && !installInstructions)
 
 	// Install MCP
 	if installEverything || installMCP {
@@ -149,6 +153,15 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		ui.SectionHeader("Agents")
 		if err := installAgentsDir(dotfiles); err != nil {
 			ui.Error(fmt.Sprintf("Agents install: %v", err))
+		}
+		fmt.Println()
+	}
+
+	// Install Skills
+	if installEverything || installSkills {
+		ui.SectionHeader("Skills")
+		if err := installSkillsDirs(dotfiles); err != nil {
+			ui.Error(fmt.Sprintf("Skills install: %v", err))
 		}
 		fmt.Println()
 	}
@@ -220,6 +233,58 @@ func installAgentsDir(dotfiles string) error {
 		return copyDirContents(src, dst)
 	}
 	return symlinkWithBackup(src, dst)
+}
+
+// installSkillsDirs installs each skill directory tracked in dotfiles/copilot/skills/ to the
+// local path recorded for it in settings.json's "skillDirectories" (dotfiles settings.json is
+// authoritative; falls back to the local settings.json if dotfiles has none yet).
+func installSkillsDirs(dotfiles string) error {
+	skillsDotfiles := platform.DotfilesSkillsDir(dotfiles)
+	names, err := skills.List(skillsDotfiles)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		ui.Info("No skills found in dotfiles")
+		return nil
+	}
+
+	targets, err := platform.SkillDirectoriesFrom(platform.DotfilesSettingsFile(dotfiles))
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		targets, err = platform.LocalSkillDirectories()
+		if err != nil {
+			return err
+		}
+	}
+	targetByName := make(map[string]string, len(targets))
+	for _, t := range targets {
+		targetByName[filepath.Base(t)] = t
+	}
+
+	for _, name := range names {
+		src := filepath.Join(skillsDotfiles, name)
+		dst, ok := targetByName[name]
+		if !ok {
+			// ponytail: no recorded target path for this skill, skip rather than guess a location.
+			ui.Skip(fmt.Sprintf("%s — no skillDirectories entry for it, add one to settings.json", name))
+			continue
+		}
+		if installCopy {
+			if err := skills.CopyDir(src, dst); err != nil {
+				ui.Error(fmt.Sprintf("%s: %v", name, err))
+			} else {
+				ui.Success(fmt.Sprintf("Copied skill: %s", name))
+			}
+			continue
+		}
+		if err := symlinkWithBackup(src, dst); err != nil {
+			ui.Error(fmt.Sprintf("%s: %v", name, err))
+		}
+	}
+	return nil
 }
 
 func doInstallSettings(dotfiles string) error {
@@ -333,7 +398,7 @@ func copyDirContents(src, dst string) error {
 
 // runInstallInteractive handles interactive multi-select install
 func runInstallInteractive(dotfiles, plat string) error {
-	componentOptions := []string{"Settings", "MCP Servers", "Agents", "Instructions"}
+	componentOptions := []string{"Settings", "MCP Servers", "Agents", "Skills", "Instructions"}
 	var selectedComponents []string
 	prompt := &survey.MultiSelect{
 		Message: "Which components to install?",
@@ -382,6 +447,15 @@ func runInstallInteractive(dotfiles, plat string) error {
 		ui.SectionHeader("Agents")
 		if err := runInteractiveAgentsInstall(dotfiles); err != nil {
 			ui.Error(fmt.Sprintf("Agents: %v", err))
+		}
+	}
+
+	if selected["Skills"] {
+		// ponytail: reuse the non-interactive path — skill dirs are per-skill trees,
+		// not worth a bespoke per-file multi-select like agents get.
+		ui.SectionHeader("Skills")
+		if err := installSkillsDirs(dotfiles); err != nil {
+			ui.Error(fmt.Sprintf("Skills: %v", err))
 		}
 	}
 

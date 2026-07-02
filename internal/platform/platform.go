@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,29 +27,19 @@ func HomeDir() (string, error) {
 	return os.UserHomeDir()
 }
 
-// CopilotDir returns the platform-specific GitHub Copilot config directory:
-//   - Windows: %APPDATA%\GitHub Copilot  (falls back to ~\AppData\Roaming\GitHub Copilot)
-//   - macOS:   ~/Library/Application Support/GitHub Copilot
-//   - Linux:   ~/.config/github-copilot  (respects $XDG_CONFIG_HOME)
+// CopilotDir returns the GitHub Copilot CLI config directory: ~/.copilot on every platform.
+//
+// ponytail: earlier versions of this tool guessed OS-specific GUI-app locations
+// (%APPDATA%\GitHub Copilot, ~/Library/Application Support/GitHub Copilot, XDG config dir).
+// Verified against a live Copilot CLI install: the CLI always uses ~/.copilot — those other
+// directories don't exist for the CLI (and on Windows, a %APPDATA%\GitHub Copilot dir left
+// behind by this tool's own earlier runs was a stale artifact, not real CLI state).
 func CopilotDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	switch runtime.GOOS {
-	case "windows":
-		if appdata := os.Getenv("APPDATA"); appdata != "" {
-			return filepath.Join(appdata, "GitHub Copilot"), nil
-		}
-		return filepath.Join(home, "AppData", "Roaming", "GitHub Copilot"), nil
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "GitHub Copilot"), nil
-	default: // linux and others
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			return filepath.Join(xdg, "github-copilot"), nil
-		}
-		return filepath.Join(home, ".config", "github-copilot"), nil
-	}
+	return filepath.Join(home, ".copilot"), nil
 }
 
 // AgentsDir returns the platform-specific agents directory inside CopilotDir.
@@ -105,6 +96,40 @@ func DotfilesSettingsFile(dotfiles string) string {
 // DotfilesInstructionsFile returns <dotfiles>/copilot/copilot-instructions.md
 func DotfilesInstructionsFile(dotfiles string) string {
 	return filepath.Join(dotfiles, "copilot", "copilot-instructions.md")
+}
+
+// DotfilesSkillsDir returns <dotfiles>/copilot/skills
+func DotfilesSkillsDir(dotfiles string) string {
+	return filepath.Join(dotfiles, "copilot", "skills")
+}
+
+// LocalSkillDirectories reads the "skillDirectories" array out of the local settings.json.
+// Returns nil (not an error) if settings.json is missing or has no such key.
+func LocalSkillDirectories() ([]string, error) {
+	settingsPath, err := SettingsFile()
+	if err != nil {
+		return nil, err
+	}
+	return SkillDirectoriesFrom(settingsPath)
+}
+
+// SkillDirectoriesFrom reads the "skillDirectories" array out of the settings.json at path.
+// Returns nil (not an error) if the file is missing or has no such key.
+func SkillDirectoriesFrom(settingsPath string) ([]string, error) {
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var parsed struct {
+		SkillDirectories []string `json:"skillDirectories"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("parsing settings.json: %w", err)
+	}
+	return parsed.SkillDirectories, nil
 }
 
 // Hostname returns the machine hostname (best effort).
